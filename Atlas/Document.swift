@@ -28,7 +28,7 @@ class AtlasDocument: NSDocument {
             storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier("Document Window Controller"))
             as! NSWindowController
         addWindowController(windowController)
-        if let viewController = windowController.contentViewController as? ViewController {
+        if let viewController = windowController.contentViewController as? DocumentViewController {
             viewController.document = self
         }
     }
@@ -42,7 +42,7 @@ class AtlasDocument: NSDocument {
         let index = try JSONDecoder().decode(CodeIndex.self, from: data)
         Task { @MainActor in
             self.codeIndex = index
-            (self.windowControllers.first?.contentViewController as? ViewController)?.document = self
+            (self.windowControllers.first?.contentViewController as? DocumentViewController)?.document = self
         }
     }
 }

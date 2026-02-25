@@ -1,6 +1,6 @@
 import Cocoa
 
-final class ViewController: NSViewController {
+final class DocumentViewController: NSViewController {
     weak var document: AtlasDocument? {
         didSet {
             if let index = document?.codeIndex {
@@ -18,6 +18,8 @@ final class ViewController: NSViewController {
         let nameLabel = NSTextField(labelWithString: "")
         nameLabel.font = .preferredFont(forTextStyle: .headline)
         nameLabel.textColor = .labelColor
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let metricsLabel = NSTextField(labelWithString: "")
         metricsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -26,6 +28,8 @@ final class ViewController: NSViewController {
         let fileLabel = NSTextField(labelWithString: "")
         fileLabel.font = .preferredFont(forTextStyle: .body)
         fileLabel.textColor = .secondaryLabelColor
+        fileLabel.lineBreakMode = .byTruncatingTail
+        fileLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let labelStack = NSStackView(views: [nameLabel, fileLabel, metricsLabel])
         labelStack.orientation = .vertical

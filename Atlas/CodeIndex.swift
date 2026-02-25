@@ -160,7 +160,9 @@ nonisolated final class DeclarationVisitor: SyntaxVisitor {
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         let (start, end) = lines(of: node)
-        let labels = node.signature.parameterClause.parameters.map { $0.firstName.text == "_" ? "" : $0.firstName.text + ":" }.joined()
+        let labels = node.signature.parameterClause.parameters.map {
+            $0.firstName.text == "_" ? "_:" : $0.firstName.text + ":"
+        }.joined()
         let name = "init(\(labels))"
         nodes.append(
             .init(
