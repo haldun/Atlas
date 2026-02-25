@@ -9,9 +9,9 @@ enum Metric: String, CaseIterable {
 
 final class TreemapView: NSView {
     var display: TreeMapDisplay = TreeMapDisplay(nodes: [])
-    var selectedMetric: Metric = .cyclomatic
-    var zoomLevel: CGFloat = 1.0
-    var panOffset: CGPoint = .zero
+    private var selectedMetric: Metric = .cyclomatic
+    private var zoomLevel: CGFloat = 1.0
+    private var panOffset: CGPoint = .zero
 
     var onHover: ((DisplayNode?) -> Void)?
 
@@ -39,6 +39,38 @@ final class TreemapView: NSView {
     private func setup() {
         wantsLayer = true
         layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+
+        let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick))
+        click.numberOfClicksRequired = 1
+        addGestureRecognizer(click)
+
+        let pan = NSPanGestureRecognizer(target: self, action: #selector(handlePan))
+        addGestureRecognizer(pan)
+    }
+
+    @objc private func handleClick(_ gesture: NSClickGestureRecognizer) {
+        let point = gesture.location(in: self)
+        if let node = hitTest(point: point), let path = node.node.filePath {
+            Process.launchedProcess(launchPath: "/usr/bin/xed", arguments: ["--line", "\(node.node.startLine)", path])
+        }
+    }
+
+    @objc private func handlePan(_ gesture: NSPanGestureRecognizer) {
+        let delta = gesture.translation(in: self)
+        let oldPanOffset = panOffset
+        panOffset.x += delta.x
+        panOffset.y += delta.y
+        clampPanOffset()
+        if oldPanOffset == panOffset { return }
+        gesture.setTranslation(.zero, in: self)
+        hoveredNode = nil
+        relayout()
+    }
+
+    private func clampPanOffset() {
+        // clamp pan so we always cover the view bounds
+        panOffset.x = min(0, max(panOffset.x, bounds.width - bounds.width * zoomLevel))
+        panOffset.y = min(0, max(panOffset.y, bounds.height - bounds.height * zoomLevel))
     }
 
     func load(index: CodeIndex) {
@@ -163,26 +195,20 @@ final class TreemapView: NSView {
         return best
     }
 
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        if let node = hitTest(point: point), let path = node.node.filePath {
-            Process.launchedProcess(launchPath: "/usr/bin/xed", arguments: ["--line", "\(node.node.startLine)", path])
-        }
-    }
-
     override func scrollWheel(with event: NSEvent) {
-        if event.modifierFlags.contains(.command) {
-            panOffset.x += event.scrollingDeltaX
-            panOffset.y += event.scrollingDeltaY
+        let mouse = convert(event.locationInWindow, from: nil)
+        let factor: CGFloat = event.scrollingDeltaY > 0 ? 1.1 : 1 / 1.1
+        let oldZoom = zoomLevel
+        zoomLevel = max(1.0, min(20.0, zoomLevel * factor))
+        if zoomLevel == 1.0 {
+            panOffset = .zero
         } else {
-            let mouse = convert(event.locationInWindow, from: nil)
-            let factor: CGFloat = event.scrollingDeltaY > 0 ? 1.1 : 1 / 1.1
-            let oldZoom = zoomLevel
-            zoomLevel = max(1.0, min(20.0, zoomLevel * factor))
             let scale = zoomLevel / oldZoom
             panOffset.x = mouse.x - scale * (mouse.x - panOffset.x)
             panOffset.y = mouse.y - scale * (mouse.y - panOffset.y)
         }
+        if oldZoom == zoomLevel { return }
+        clampPanOffset()
         hoveredNode = nil
         relayout()
     }
@@ -246,10 +272,10 @@ extension NSColor {
     }
 }
 
-private extension DisplayNode {
-    var name: String { node.name }
-    var filePath: String? { node.filePath.map { "\($0):\(node.startLine)" } }
-    var metricsDescription: String? {
+extension DisplayNode {
+    fileprivate var name: String { node.name }
+    fileprivate var filePath: String? { node.filePath.map { "\($0):\(node.startLine)" } }
+    fileprivate var metricsDescription: String? {
         var parts = [String]()
         parts.append("cyclomatic \(Int(node.cyclomaticComplexity))")
         parts.append("cognitive \(Int(node.cognitiveComplexity))")
