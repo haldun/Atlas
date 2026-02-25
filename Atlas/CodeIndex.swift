@@ -56,7 +56,7 @@ nonisolated func validate(_ node: TreeNode) -> Bool {
 }
 
 nonisolated func makeIndex(at url: URL) throws -> CodeIndex {
-    // @todo this is really slow.
+    // @todo this is really slow. Maybe the answer is parallelism here but I am not ready to fight with async swift yet.
     guard var root = try buildTree(from: url) else { throw CodeIndexError.failedToReadFolder }
     if let churnMap = try? computeChurn(at: url) {
         root = applyChurn(churnMap, to: root, relativeTo: url)

@@ -16,11 +16,16 @@ final class TreemapView: NSView {
 
     var onHover: ((DisplayNode?) -> Void)?
 
+    private let baseLayer = CALayer()  // this is where we draw all the nodes
+    private let hoverLayer = CAShapeLayer()  // we only redraw this when hover changes
+    private var baseImage: CGImage?
+    private var lastHoverFrame: CGRect?
+
     private var hoveredNode: DisplayNode? = nil {
         didSet {
             guard hoveredNode != oldValue else { return }
             onHover?(hoveredNode)
-            needsDisplay = true
+            updateHoverPath()
         }
     }
 
@@ -39,7 +44,19 @@ final class TreemapView: NSView {
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+
+        // base layer where we render the nodes
+        baseLayer.contentsGravity = .resize
+        baseLayer.frame = bounds
+        layer?.addSublayer(baseLayer)
+
+        // hover layer
+        hoverLayer.fillColor = nil
+        hoverLayer.strokeColor = NSColor(calibratedRed: 1, green: 1, blue: 0.4, alpha: 1).cgColor
+        hoverLayer.lineWidth = 2
+        hoverLayer.lineJoin = .miter
+        hoverLayer.frame = bounds
+        layer?.addSublayer(hoverLayer)
 
         let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick))
         click.numberOfClicksRequired = 1
@@ -82,13 +99,16 @@ final class TreemapView: NSView {
     func selectMetric(_ metric: Metric) {
         selectedMetric = metric
         buildGradientCache()
-        needsDisplay = true
+        rebuildBaseImage()
     }
 
     override var isFlipped: Bool { true }
 
     override func layout() {
         super.layout()
+        baseLayer.frame = bounds
+        hoverLayer.frame = bounds
+        if inLiveResize { return }
         if codeIndex != nil { relayout() }
     }
 
@@ -106,7 +126,19 @@ final class TreemapView: NSView {
         display = layoutTreemap(root: index.root, in: treemapRect())
         maxChurn = display.nodes.map { $0.node.churn }.max() ?? maxChurn
         buildGradientCache()
-        needsDisplay = true
+        rebuildBaseImage()
+        updateHoverPath()
+    }
+
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        hoveredNode = nil
+        hoverLayer.path = nil
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        if codeIndex != nil { relayout() }
     }
 
     private var cachedGradients: [CGRect: CGGradient] = [:]
@@ -126,17 +158,42 @@ final class TreemapView: NSView {
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+    private func rebuildBaseImage() {
+        // @todo this is slow.
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let width = Int(bounds.width * scale)
+        let height = Int(bounds.height * scale)
+        guard width > 0, height > 0 else {
+            baseImage = nil
+            baseLayer.contents = nil
+            return
+        }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let alpha = CGImageAlphaInfo.premultipliedFirst.rawValue
 
+        guard let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: alpha
+        ) else { return }
+
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: 0, y: bounds.height)
+        ctx.scaleBy(x: 1, y: -1)
         ctx.setFillColor(CGColor(gray: 0.12, alpha: 1))
         ctx.fill(bounds)
         ctx.saveGState()
         ctx.clip(to: bounds)
 
+        // first render the leaves
         for node in display.nodes.reversed() {
             let frame = node.frame
             guard frame.width > 1, frame.height > 1, node.node.isLeaf else { continue }
+            guard frame.intersects(bounds) else { continue }
             guard let gradient = cachedGradients[node.frame] else { continue }
             ctx.saveGState()
             ctx.clip(to: frame)
@@ -151,28 +208,35 @@ final class TreemapView: NSView {
             ctx.restoreGState()
         }
 
+        // then render the containers
         for node in display.nodes.reversed() {
             let frame = node.frame
             guard frame.width > 1, frame.height > 1, !node.node.isLeaf else { continue }
+            guard frame.intersects(bounds) else { continue }
             switch node.node.kind {
             case .folder: ctx.setStrokeColor(CGColor(gray: 0, alpha: 1))
             case .file:
                 let churnColor = fileChurnColor(churn: node.node.churn, max: maxChurn)
                 ctx.setStrokeColor(churnColor.cgColor)
-
             default: continue
             }
             ctx.setLineWidth(1)
             ctx.stroke(frame.insetBy(dx: 0.5, dy: 0.5))
         }
 
-        if let hovered = hoveredNode {
-            ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 0.4, alpha: 1))
-            ctx.setLineWidth(2)
-            ctx.stroke(hovered.frame)
-        }
-
         ctx.restoreGState()
+        baseImage = ctx.makeImage()
+        baseLayer.contents = baseImage
+        baseLayer.contentsScale = scale
+    }
+
+    private func updateHoverPath() {
+        if let hoveredNode {
+            hoverLayer.path = .init(rect: hoveredNode.frame, transform: nil)
+            hoverLayer.isHidden = false
+        } else {
+            hoverLayer.isHidden = true
+        }
     }
 
     override func updateTrackingAreas() {
@@ -180,7 +244,7 @@ final class TreemapView: NSView {
         if let existing = trackingArea { removeTrackingArea(existing) }
         trackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.activeInKeyWindow, .mouseMoved],
+            options: [.activeInKeyWindow, .mouseMoved, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
@@ -216,11 +280,6 @@ final class TreemapView: NSView {
         clampPanOffset()
         hoveredNode = nil
         relayout()
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        hoveredNode = nil
     }
 
     override var acceptsFirstResponder: Bool { true }
