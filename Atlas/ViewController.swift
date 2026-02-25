@@ -41,11 +41,19 @@ final class DocumentViewController: NSViewController {
         Metric.allCases.forEach { metricPopup.addItem(withTitle: $0.rawValue) }
         metricPopup.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
+        let modeControl = NSSegmentedControl(
+            labels: ["Complexity", "Structure"],
+            trackingMode: .selectOne,
+            target: self,
+            action: #selector(modeChanged)
+        )
+        modeControl.selectedSegment = 0
+
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBar = NSStackView(views: [labelStack, spacer, metricPopup])
+        let topBar = NSStackView(views: [labelStack, spacer, modeControl, metricPopup])
         topBar.orientation = .horizontal
         topBar.alignment = .centerY
         topBar.distribution = .fill
@@ -81,8 +89,12 @@ final class DocumentViewController: NSViewController {
     }
 
     @objc private func metricChanged(_ sender: NSPopUpButton) {
-        let metric = Metric.allCases[sender.indexOfSelectedItem]
-        treemapView.selectMetric(metric)
+        treemapView.metric = Metric.allCases[sender.indexOfSelectedItem]
+    }
+
+    @objc private func modeChanged(_ sender: NSSegmentedControl) {
+        let mode: ViewMode = sender.selectedSegment == 0 ? .complexity : .structure
+        treemapView.viewMode = mode
     }
 }
 

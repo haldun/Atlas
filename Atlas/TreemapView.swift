@@ -7,9 +7,28 @@ enum Metric: String, CaseIterable {
     case parameters = "Parameter Count"
 }
 
+enum ViewMode {
+    case complexity
+    case structure
+}
+
 final class TreemapView: NSView {
     var display: TreeMapDisplay = TreeMapDisplay(nodes: [])
-    private var selectedMetric: Metric = .cyclomatic
+    var visibleNodes: [DisplayNode] = []
+    var viewMode: ViewMode = .complexity {
+        didSet {
+            guard oldValue != viewMode else { return }
+            rebuildVisibleNodes()
+            rebuildBaseImage()
+        }
+    }
+    var metric: Metric = .cyclomatic {
+        didSet {
+            guard oldValue != metric else { return }
+            buildGradientCache()
+            rebuildBaseImage()
+        }
+    }
     private var zoomLevel: CGFloat = 1.0
     private var panOffset: CGPoint = .zero
     private var maxChurn: Float = 1.0
@@ -94,12 +113,15 @@ final class TreemapView: NSView {
     func load(index: CodeIndex) {
         codeIndex = index
         relayout()
+        rebuildVisibleNodes()
     }
 
-    func selectMetric(_ metric: Metric) {
-        selectedMetric = metric
-        buildGradientCache()
-        rebuildBaseImage()
+    private func rebuildVisibleNodes() {
+        visibleNodes =
+            switch viewMode {
+            case .complexity: display.nodes
+            case .structure: display.nodes.filter { !$0.node.isLeaf && ($0.node.kind == .folder || $0.node.kind == .file) }
+            }
     }
 
     override var isFlipped: Bool { true }
@@ -112,20 +134,18 @@ final class TreemapView: NSView {
         if codeIndex != nil { relayout() }
     }
 
-    private func treemapRect() -> CGRect {
-        CGRect(
+    private func relayout() {
+        guard let index = codeIndex else { return }
+        let treemapRect = CGRect(
             x: panOffset.x,
             y: panOffset.y,
             width: bounds.width * zoomLevel,
             height: bounds.height * zoomLevel
         )
-    }
-
-    private func relayout() {
-        guard let index = codeIndex else { return }
-        display = layoutTreemap(root: index.root, in: treemapRect())
+        display = layoutTreemap(root: index.root, in: treemapRect)
         maxChurn = display.nodes.map { $0.node.churn }.max() ?? maxChurn
         buildGradientCache()
+        rebuildVisibleNodes()
         rebuildBaseImage()
         updateHoverPath()
     }
@@ -146,7 +166,7 @@ final class TreemapView: NSView {
     private func buildGradientCache() {
         cachedGradients.removeAll()
         for node in display.nodes where node.node.isLeaf {
-            let heat = heatColor(for: metricValue(for: node.node, metric: selectedMetric), metric: selectedMetric)
+            let heat = heatColor(for: metricValue(for: node.node, metric: metric), metric: metric)
             let highlight = heat.lighter(by: 0.12)
             if let gradient = CGGradient(
                 colorsSpace: CGColorSpaceCreateDeviceRGB(),
@@ -160,6 +180,7 @@ final class TreemapView: NSView {
 
     private func rebuildBaseImage() {
         // @todo this is slow.
+        // @todo this function needs some love.
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         let width = Int(bounds.width * scale)
         let height = Int(bounds.height * scale)
@@ -171,15 +192,17 @@ final class TreemapView: NSView {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let alpha = CGImageAlphaInfo.premultipliedFirst.rawValue
 
-        guard let ctx = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: alpha
-        ) else { return }
+        guard
+            let ctx = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: alpha
+            )
+        else { return }
 
         ctx.scaleBy(x: scale, y: scale)
         ctx.translateBy(x: 0, y: bounds.height)
@@ -190,38 +213,57 @@ final class TreemapView: NSView {
         ctx.clip(to: bounds)
 
         // first render the leaves
-        for node in display.nodes.reversed() {
-            let frame = node.frame
-            guard frame.width > 1, frame.height > 1, node.node.isLeaf else { continue }
-            guard frame.intersects(bounds) else { continue }
-            guard let gradient = cachedGradients[node.frame] else { continue }
-            ctx.saveGState()
-            ctx.clip(to: frame)
-            ctx.drawRadialGradient(
-                gradient,
-                startCenter: CGPoint(x: frame.midX, y: frame.midY),
-                startRadius: 0,
-                endCenter: CGPoint(x: frame.midX, y: frame.midY),
-                endRadius: max(frame.width, frame.height) * 0.7,
-                options: [.drawsAfterEndLocation]
-            )
-            ctx.restoreGState()
+        if viewMode != .structure {
+            for node in visibleNodes.reversed() {
+                let frame = node.frame
+                guard frame.width > 1, frame.height > 1, node.node.isLeaf else { continue }
+                guard frame.intersects(bounds) else { continue }
+                guard let gradient = cachedGradients[node.frame] else { continue }
+                ctx.saveGState()
+                ctx.clip(to: frame)
+                ctx.drawRadialGradient(
+                    gradient,
+                    startCenter: CGPoint(x: frame.midX, y: frame.midY),
+                    startRadius: 0,
+                    endCenter: CGPoint(x: frame.midX, y: frame.midY),
+                    endRadius: max(frame.width, frame.height) * 0.7,
+                    options: [.drawsAfterEndLocation]
+                )
+                ctx.restoreGState()
+            }
         }
 
         // then render the containers
-        for node in display.nodes.reversed() {
+        let nodes = viewMode == .structure ? visibleNodes : visibleNodes.reversed()
+        for node in nodes {
             let frame = node.frame
             guard frame.width > 1, frame.height > 1, !node.node.isLeaf else { continue }
             guard frame.intersects(bounds) else { continue }
-            switch node.node.kind {
-            case .folder: ctx.setStrokeColor(CGColor(gray: 0, alpha: 1))
-            case .file:
-                let churnColor = fileChurnColor(churn: node.node.churn, max: maxChurn)
-                ctx.setStrokeColor(churnColor.cgColor)
-            default: continue
+
+            switch viewMode {
+            case .complexity:
+                switch node.node.kind {
+                case .folder: ctx.setStrokeColor(CGColor(gray: 0, alpha: 1))
+                case .file:
+                    let churnColor = fileChurnColor(churn: node.node.churn, max: maxChurn)
+                    ctx.setStrokeColor(churnColor.cgColor)
+                default: continue
+                }
+                ctx.setLineWidth(1)
+                ctx.stroke(frame.insetBy(dx: 0.5, dy: 0.5))
+            case .structure:
+                switch node.node.kind {
+                case .folder:
+                    ctx.setStrokeColor(CGColor(red: 0.4, green: 0.5, blue: 0.7, alpha: 1))
+                    ctx.setLineWidth(3)
+                    ctx.stroke(frame.insetBy(dx: 0.5, dy: 0.5))
+                case .file:
+                    ctx.setStrokeColor(CGColor(gray: 0.9, alpha: 1))
+                    ctx.setLineWidth(1)
+                    ctx.stroke(frame.insetBy(dx: 0.5, dy: 0.5))
+                default: continue
+                }
             }
-            ctx.setLineWidth(1)
-            ctx.stroke(frame.insetBy(dx: 0.5, dy: 0.5))
         }
 
         ctx.restoreGState()
@@ -258,7 +300,7 @@ final class TreemapView: NSView {
 
     private func hitTest(point: CGPoint) -> DisplayNode? {
         var best: DisplayNode? = nil
-        for node in display.nodes {
+        for node in visibleNodes {
             if node.frame.contains(point) { best = node }
         }
         return best

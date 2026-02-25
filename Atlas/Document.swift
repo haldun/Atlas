@@ -4,7 +4,7 @@ final class AtlasDocumentController: NSDocumentController {
     override func newDocument(_ sender: Any?) {
         guard let folderURL = askForFolder() else { return }
         Task {
-            do  {
+            do {
                 let doc = AtlasDocument()
                 doc.codeIndex = try makeIndex(at: folderURL)
                 addDocument(doc)
