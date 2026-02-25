@@ -1,29 +1,16 @@
-//
-//  AppDelegate.swift
-//  Atlas
-//
-//  Created by Haldun Bayhantopcu on 25.02.26.
-//
-
 import Cocoa
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate {
-
-
-
-    func applicationDidFinishLaunching(_ aNotification: Notification) {
-        // Insert code here to initialize your application
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        _ = AtlasDocumentController()
     }
 
-    func applicationWillTerminate(_ aNotification: Notification) {
-        // Insert code here to tear down your application
-    }
+    func applicationDidFinishLaunching(_ aNotification: Notification) {}
 
-    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        return true
-    }
+    func applicationWillTerminate(_ aNotification: Notification) {}
 
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }
 }
-

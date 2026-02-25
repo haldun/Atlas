@@ -1,0 +1,9 @@
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.xcworkspace/xcuserdata/
+.build/
+*.o
+*.d
+Package.resolved

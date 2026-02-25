@@ -1,43 +1,60 @@
-//
-//  Document.swift
-//  Atlas
-//
-//  Created by Haldun Bayhantopcu on 25.02.26.
-//
-
 import Cocoa
 
-class Document: NSDocument {
-
-    override init() {
-        super.init()
-        // Add your subclass-specific initialization here.
+final class AtlasDocumentController: NSDocumentController {
+    override func newDocument(_ sender: Any?) {
+        print(#function)
+        guard let folderURL = askForFolder() else { return }
+        Task {
+            do  {
+                let doc = AtlasDocument()
+                doc.codeIndex = try makeIndex(at: folderURL)
+                addDocument(doc)
+                doc.makeWindowControllers()
+                doc.showWindows()
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
     }
+}
 
-    override nonisolated class var autosavesInPlace: Bool {
-        return true
-    }
+class AtlasDocument: NSDocument {
+    var codeIndex: CodeIndex?
+
+    override nonisolated class var autosavesInPlace: Bool { true }
 
     override func makeWindowControllers() {
-        // Returns the Storyboard that contains your Document window.
+        Swift.print(#function)
         let storyboard = NSStoryboard(name: NSStoryboard.Name("Main"), bundle: nil)
-        let windowController = storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier("Document Window Controller")) as! NSWindowController
-        self.addWindowController(windowController)
+        let windowController =
+            storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier("Document Window Controller"))
+            as! NSWindowController
+        addWindowController(windowController)
+        if let viewController = windowController.contentViewController as? ViewController {
+            viewController.document = self
+        }
     }
 
     override func data(ofType typeName: String) throws -> Data {
-        // Insert code here to write your document to data of the specified type, throwing an error in case of failure.
-        // Alternatively, you could remove this method and override fileWrapper(ofType:), write(to:ofType:), or write(to:ofType:for:originalContentsURL:) instead.
-        throw NSError(domain: NSOSStatusErrorDomain, code: unimpErr, userInfo: nil)
+        guard let index = codeIndex else { throw NSError(domain: NSOSStatusErrorDomain, code: unimpErr) }
+        return try JSONEncoder().encode(index)
     }
 
     override nonisolated func read(from data: Data, ofType typeName: String) throws {
-        // Insert code here to read your document from the given data of the specified type, throwing an error in case of failure.
-        // Alternatively, you could remove this method and override read(from:ofType:) instead.
-        // If you do, you should also override isEntireFileLoaded to return false if the contents are lazily loaded.
-        throw NSError(domain: NSOSStatusErrorDomain, code: unimpErr, userInfo: nil)
+        let index = try JSONDecoder().decode(CodeIndex.self, from: data)
+        Task { @MainActor in
+            self.codeIndex = index
+            (self.windowControllers.first?.contentViewController as? ViewController)?.document = self
+        }
     }
-
-
 }
 
+private func askForFolder() -> URL? {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.message = "Choose a Swift project folder to index"
+    panel.prompt = "Open"
+    return panel.runModal() == .OK ? panel.url : nil
+}
