@@ -12,6 +12,7 @@ final class TreemapView: NSView {
     private var selectedMetric: Metric = .cyclomatic
     private var zoomLevel: CGFloat = 1.0
     private var panOffset: CGPoint = .zero
+    private var maxChurn: Float = 1.0
 
     var onHover: ((DisplayNode?) -> Void)?
 
@@ -103,6 +104,7 @@ final class TreemapView: NSView {
     private func relayout() {
         guard let index = codeIndex else { return }
         display = layoutTreemap(root: index.root, in: treemapRect())
+        maxChurn = display.nodes.map { $0.node.churn }.max() ?? maxChurn
         buildGradientCache()
         needsDisplay = true
     }
@@ -154,7 +156,10 @@ final class TreemapView: NSView {
             guard frame.width > 1, frame.height > 1, !node.node.isLeaf else { continue }
             switch node.node.kind {
             case .folder: ctx.setStrokeColor(CGColor(gray: 0, alpha: 1))
-            case .file: ctx.setStrokeColor(CGColor(gray: 0.14, alpha: 1))
+            case .file:
+                let churnColor = fileChurnColor(churn: node.node.churn, max: maxChurn)
+                ctx.setStrokeColor(churnColor.cgColor)
+
             default: continue
             }
             ctx.setLineWidth(1)
@@ -219,6 +224,14 @@ final class TreemapView: NSView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+}
+
+private func fileChurnColor(churn: Float, max: Float) -> NSColor {
+    guard max > 0 else { return NSColor(white: 0.14, alpha: 1) }
+    let t = CGFloat(min(churn / max, 1))
+    let gray = NSColor(white: 0.14, alpha: 1).usingColorSpace(.deviceRGB)!
+    let orange = NSColor(red: 0.8, green: 0.4, blue: 0.1, alpha: 1)
+    return lerp(gray, orange, t)
 }
 
 private func metricValue(for node: TreeNode, metric: Metric) -> Float {

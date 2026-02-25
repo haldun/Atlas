@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 import SwiftParser
 import SwiftSyntax
 
@@ -12,18 +13,21 @@ nonisolated struct TreeNode: Codable, Equatable, Sendable {
     // But maybe it is not always the case? What would be a different way of looking at the code?
 
     // @todo how to handle the nested functions? should they be just child nodes?
+    // @todo how about a mode where we just render folders and files and the size is basically LOC?
     enum Kind: Codable, Equatable {
-        case folder
-        case file
-        case `enum`
-        case `protocol`
+        case `actor`
         case `class`
-        case `struct`
-        case method
+        case `enum`
+        case `extension`
+        case file
+        case folder
         case freeFunction
+        case method
+        case `protocol`
+        case `struct`
         // case globalVariable
         // @todo handle the following at a point
-        // actor, extension, globalVariable, property
+        // globalVariable, property
     }
 
     let name: String
@@ -52,6 +56,7 @@ nonisolated func validate(_ node: TreeNode) -> Bool {
 }
 
 nonisolated func makeIndex(at url: URL) throws -> CodeIndex {
+    // @todo this is really slow.
     guard var root = try buildTree(from: url) else { throw CodeIndexError.failedToReadFolder }
     if let churnMap = try? computeCurn(at: url) {
         root = applyChurn(churnMap, to: root, relativeTo: url)
@@ -122,6 +127,11 @@ nonisolated final class DeclarationVisitor: SyntaxVisitor {
         super.init(viewMode: viewMode)
     }
 
+    override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
+        nodes.append(makeNode(from: node, kind: .actor))
+        return .skipChildren
+    }
+
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         nodes.append(makeNode(from: node, kind: .class))
         return .skipChildren
@@ -134,6 +144,13 @@ nonisolated final class DeclarationVisitor: SyntaxVisitor {
 
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
         nodes.append(makeNode(from: node, kind: .enum))
+        return .skipChildren
+    }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        // @todo
+        // Extensions does not have name. So currently we just say "extension" but maybe we can use type name + extension or smth?
+        nodes.append(makeNode(from: node, name: "extension", kind: .extension))
         return .skipChildren
     }
 
@@ -192,6 +209,22 @@ nonisolated final class DeclarationVisitor: SyntaxVisitor {
         let (start, end) = lines(of: decl)
         return TreeNode(
             name: decl.name.text,
+            kind: kind,
+            size: children.reduce(0.0) { $0 + $1.size },
+            startLine: start,
+            endLine: end,
+            filePath: filePath,
+            children: children
+        )
+    }
+
+    private func makeNode<D: DeclGroupSyntax>(from decl: D, name: String, kind: TreeNode.Kind) -> TreeNode {
+        let visitor = DeclarationVisitor(converter: converter, filePath: filePath, viewMode: .sourceAccurate)
+        visitor.walk(decl.memberBlock)
+        let children = visitor.nodes
+        let (start, end) = lines(of: decl)
+        return TreeNode(
+            name: name,
             kind: kind,
             size: children.reduce(0.0) { $0 + $1.size },
             startLine: start,
@@ -365,8 +398,11 @@ nonisolated func parameterCount(of initializer: InitializerDeclSyntax) -> Int {
 
 // returns a map of path -> churn score
 nonisolated func computeCurn(at url: URL) throws -> [String: Int] {
+    let start = CACurrentMediaTime()
+    defer { print(#function, (CACurrentMediaTime() - start) * 1000) }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    // @todo maybe this needs to be configurable?
     process.arguments = ["git", "log", "--since=6 months ago", "--name-only", "--pretty=format:", "--", "*.swift"]
     process.currentDirectoryURL = url
 
@@ -390,6 +426,7 @@ nonisolated func computeCurn(at url: URL) throws -> [String: Int] {
 nonisolated func applyChurn(_ map: [String: Int], to node: TreeNode, relativeTo base: URL) -> TreeNode {
     var node = node
     if node.kind == .file, let path = node.filePath {
+        // @todo not clear what we are doing here
         let relative = URL(fileURLWithPath: path).path.replacingOccurrences(of: base.path + "/", with: "")
         node.churn = Float(map[relative] ?? 0)
     }
