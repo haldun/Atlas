@@ -48,6 +48,7 @@ final class TreemapView: NSView {
 
     func selectMetric(_ metric: Metric) {
         selectedMetric = metric
+        buildGradientCache()
         needsDisplay = true
     }
 
@@ -70,7 +71,25 @@ final class TreemapView: NSView {
     private func relayout() {
         guard let index = codeIndex else { return }
         display = layoutTreemap(root: index.root, in: treemapRect())
+        buildGradientCache()
         needsDisplay = true
+    }
+
+    private var cachedGradients: [CGRect: CGGradient] = [:]
+
+    private func buildGradientCache() {
+        cachedGradients.removeAll()
+        for node in display.nodes where node.node.isLeaf {
+            let heat = heatColor(for: metricValue(for: node.node, metric: selectedMetric), metric: selectedMetric)
+            let highlight = heat.lighter(by: 0.12)
+            if let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [highlight.cgColor, heat.cgColor] as CFArray,
+                locations: [0, 1]
+            ) {
+                cachedGradients[node.frame] = gradient
+            }
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -78,22 +97,13 @@ final class TreemapView: NSView {
 
         ctx.setFillColor(CGColor(gray: 0.12, alpha: 1))
         ctx.fill(bounds)
-
         ctx.saveGState()
         ctx.clip(to: bounds)
 
         for node in display.nodes.reversed() {
             let frame = node.frame
             guard frame.width > 1, frame.height > 1, node.node.isLeaf else { continue }
-            let heat = heatColor(for: metricValue(for: node.node, metric: selectedMetric), metric: selectedMetric)
-            let highlight = heat.lighter(by: 0.12)
-            guard
-                let gradient = CGGradient(
-                    colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                    colors: [highlight.cgColor, heat.cgColor] as CFArray,
-                    locations: [0, 1]
-                )
-            else { continue }
+            guard let gradient = cachedGradients[node.frame] else { continue }
             ctx.saveGState()
             ctx.clip(to: frame)
             ctx.drawRadialGradient(
