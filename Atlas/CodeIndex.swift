@@ -367,8 +367,22 @@ nonisolated func nestingDepth(of function: WithOptionalCodeBlockSyntax) -> Int {
         override func visit(_ node: RepeatStmtSyntax) -> SyntaxVisitorContinueKind { enter(); return .visitChildren }
         override func visitPost(_ node: RepeatStmtSyntax) { exit() }
 
-        override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind { enter(); return .visitChildren }
-        override func visitPost(_ node: IfExprSyntax) { exit() }
+        override func visit(_ node: IfExprSyntax) -> SyntaxVisitorContinueKind {
+            if !isElseIf(node) { enter() }
+            return .visitChildren
+        }
+        override func visitPost(_ node: IfExprSyntax) {
+            if !isElseIf(node) { exit() }
+        }
+
+        // Do not count `else if` branches as additional nesting depth.
+        private func isElseIf(_ node: IfExprSyntax) -> Bool {
+            guard let parentIf = node.parent?.as(IfExprSyntax.self) else { return false }
+            if let elseBody = parentIf.elseBody {
+                return elseBody.id == node.id
+            }
+            return false
+        }
 
         override func visit(_ node: SwitchExprSyntax) -> SyntaxVisitorContinueKind { enter(); return .visitChildren }
         override func visitPost(_ node: SwitchExprSyntax) { exit() }
