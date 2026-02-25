@@ -158,6 +158,27 @@ nonisolated final class DeclarationVisitor: SyntaxVisitor {
         return .skipChildren
     }
 
+    override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
+        let (start, end) = lines(of: node)
+        let labels = node.signature.parameterClause.parameters.map { $0.firstName.text == "_" ? "" : $0.firstName.text + ":" }.joined()
+        let name = "init(\(labels))"
+        nodes.append(
+            .init(
+                name: name,
+                kind: .method,
+                size: size(of: node),
+                cyclomaticComplexity: Float(cyclomatic(of: node)),
+                cognitiveComplexity: Float(cognitive(of: node)),
+                nestingDepth: Float(nestingDepth(of: node)),
+                parameterCount: Float(parameterCount(of: node)),
+                startLine: start,
+                endLine: end,
+                filePath: filePath
+            )
+        )
+        return .skipChildren
+    }
+
     private func makeNode<D: NamedDeclSyntax & DeclGroupSyntax>(from decl: D, kind: TreeNode.Kind) -> TreeNode {
         let visitor = DeclarationVisitor(converter: converter, filePath: filePath, viewMode: .sourceAccurate)
         visitor.walk(decl.memberBlock)
@@ -186,7 +207,7 @@ nonisolated func size(of node: some SyntaxProtocol) -> Float {
     Float(node.tokens(viewMode: .sourceAccurate).reduce(0) { acc, _ in acc + 1 })
 }
 
-nonisolated func cyclomatic(of function: FunctionDeclSyntax) -> Int {
+nonisolated func cyclomatic(of function: WithOptionalCodeBlockSyntax) -> Int {
     guard let body = function.body else { return 1 }
     final class Visitor: SyntaxVisitor {
         var result = 1
@@ -209,7 +230,7 @@ nonisolated func cyclomatic(of function: FunctionDeclSyntax) -> Int {
     return visitor.result
 }
 
-nonisolated func cognitive(of function: FunctionDeclSyntax) -> Int {
+nonisolated func cognitive(of function: WithOptionalCodeBlockSyntax) -> Int {
     guard let body = function.body else { return 0 }
     final class Visitor: SyntaxVisitor {
         var result = 0
@@ -286,7 +307,7 @@ nonisolated func cognitive(of function: FunctionDeclSyntax) -> Int {
     return visitor.result
 }
 
-nonisolated func nestingDepth(of function: FunctionDeclSyntax) -> Int {
+nonisolated func nestingDepth(of function: WithOptionalCodeBlockSyntax) -> Int {
     guard let body = function.body else { return 0 }
     final class Visitor: SyntaxVisitor {
         var current = 0
@@ -330,4 +351,8 @@ nonisolated func nestingDepth(of function: FunctionDeclSyntax) -> Int {
 
 nonisolated func parameterCount(of function: FunctionDeclSyntax) -> Int {
     function.signature.parameterClause.parameters.count
+}
+
+nonisolated func parameterCount(of initializer: InitializerDeclSyntax) -> Int {
+    initializer.signature.parameterClause.parameters.count
 }
