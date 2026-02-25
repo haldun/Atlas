@@ -37,13 +37,14 @@ nonisolated struct TreeNode: Codable, Equatable, Sendable {
     var startLine: Int = 0
     var endLine: Int = 0
     var filePath: String? = nil
+    var churn: Float = 0.0 // Only for file nodes
     // @todo this is probably not good, but we currently do not care.
     // @todo it would be great if we can have an easy way to acces to the parent node.
     var children: [TreeNode] = []
     var isLeaf: Bool { children.isEmpty }
 }
 
-func validate(_ node: TreeNode) -> Bool {
+nonisolated func validate(_ node: TreeNode) -> Bool {
     if node.size < 0 { return false }
     if node.isLeaf { return true }
     for child in node.children { if !validate(child) { return false } }
@@ -51,7 +52,10 @@ func validate(_ node: TreeNode) -> Bool {
 }
 
 nonisolated func makeIndex(at url: URL) throws -> CodeIndex {
-    guard let root = try buildTree(from: url) else { throw CodeIndexError.failedToReadFolder }
+    guard var root = try buildTree(from: url) else { throw CodeIndexError.failedToReadFolder }
+    if let churnMap = try? computeCurn(at: url) {
+        root = applyChurn(churnMap, to: root, relativeTo: url)
+    }
     if !validate(root) { preconditionFailure("The tree that we built is not valid. This is a bug") }
     return .init(root: root)
 }
@@ -60,7 +64,7 @@ enum CodeIndexError: Swift.Error {
     case failedToReadFolder
 }
 
-func parse(at url: URL) -> [TreeNode] {
+nonisolated func parse(at url: URL) -> [TreeNode] {
     guard let source = try? String(contentsOf: url, encoding: .utf8) else { return [] }
     let sourceFile = Parser.parse(source: source)
     let converter = SourceLocationConverter(fileName: url.path, tree: sourceFile)
@@ -69,7 +73,7 @@ func parse(at url: URL) -> [TreeNode] {
     return visitor.nodes
 }
 
-func buildTree(from url: URL) throws -> TreeNode? {
+nonisolated func buildTree(from url: URL) throws -> TreeNode? {
     let fm = FileManager.default
     let values = try url.resourceValues(forKeys: [
         .isDirectoryKey, .isRegularFileKey, .fileSizeKey, .isSymbolicLinkKey,
@@ -357,4 +361,38 @@ nonisolated func parameterCount(of function: FunctionDeclSyntax) -> Int {
 
 nonisolated func parameterCount(of initializer: InitializerDeclSyntax) -> Int {
     initializer.signature.parameterClause.parameters.count
+}
+
+// returns a map of path -> churn score
+nonisolated func computeCurn(at url: URL) throws -> [String: Int] {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["git", "log", "--since=6 months ago", "--name-only", "--pretty=format:", "--", "*.swift"]
+    process.currentDirectoryURL = url
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    try process.run()
+    process.waitUntilExit()
+
+    let data = try pipe.fileHandleForReading.readToEnd()
+    guard let data else { return [:] }
+    let output = String(data: data, encoding: .utf8) ?? ""
+    var counts: [String: Int] = [:]
+    for line in output.components(separatedBy: "\n") {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { continue }
+        counts[trimmed, default: 0] += 1
+    }
+    return counts
+}
+
+nonisolated func applyChurn(_ map: [String: Int], to node: TreeNode, relativeTo base: URL) -> TreeNode {
+    var node = node
+    if node.kind == .file, let path = node.filePath {
+        let relative = URL(fileURLWithPath: path).path.replacingOccurrences(of: base.path + "/", with: "")
+        node.churn = Float(map[relative] ?? 0)
+    }
+    node.children = node.children.map { applyChurn(map, to: $0, relativeTo: base) }
+    return node
 }
