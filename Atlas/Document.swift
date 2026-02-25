@@ -2,7 +2,6 @@ import Cocoa
 
 final class AtlasDocumentController: NSDocumentController {
     override func newDocument(_ sender: Any?) {
-        print(#function)
         guard let folderURL = askForFolder() else { return }
         Task {
             do  {
@@ -24,7 +23,6 @@ class AtlasDocument: NSDocument {
     override nonisolated class var autosavesInPlace: Bool { true }
 
     override func makeWindowControllers() {
-        Swift.print(#function)
         let storyboard = NSStoryboard(name: NSStoryboard.Name("Main"), bundle: nil)
         let windowController =
             storyboard.instantiateController(withIdentifier: NSStoryboard.SceneIdentifier("Document Window Controller"))
