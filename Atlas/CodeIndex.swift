@@ -58,7 +58,7 @@ nonisolated func validate(_ node: TreeNode) -> Bool {
 nonisolated func makeIndex(at url: URL) throws -> CodeIndex {
     // @todo this is really slow.
     guard var root = try buildTree(from: url) else { throw CodeIndexError.failedToReadFolder }
-    if let churnMap = try? computeCurn(at: url) {
+    if let churnMap = try? computeChurn(at: url) {
         root = applyChurn(churnMap, to: root, relativeTo: url)
     }
     if !validate(root) { preconditionFailure("The tree that we built is not valid. This is a bug") }
@@ -411,7 +411,7 @@ nonisolated func parameterCount(of initializer: InitializerDeclSyntax) -> Int {
 }
 
 // returns a map of path -> churn score
-nonisolated func computeCurn(at url: URL) throws -> [String: Int] {
+nonisolated func computeChurn(at url: URL) throws -> [String: Int] {
     let start = CACurrentMediaTime()
     defer { print(#function, (CACurrentMediaTime() - start) * 1000) }
     let process = Process()
