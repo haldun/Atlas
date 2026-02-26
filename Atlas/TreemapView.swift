@@ -385,16 +385,3 @@ extension NSColor {
         )
     }
 }
-
-extension DisplayNode {
-    fileprivate var name: String { node.name }
-    fileprivate var filePath: String? { node.filePath.map { "\($0):\(node.startLine)" } }
-    fileprivate var metricsDescription: String? {
-        var parts = [String]()
-        parts.append("cyclomatic \(Int(node.cyclomaticComplexity))")
-        parts.append("cognitive \(Int(node.cognitiveComplexity))")
-        parts.append("nesting \(Int(node.nestingDepth))")
-        parts.append("params \(Int(node.parameterCount))")
-        return parts.joined(separator: ", ")
-    }
-}
