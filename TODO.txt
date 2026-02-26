@@ -1,0 +1,8 @@
+- Explore alternative rendering. Currently it is a bit slow to render more than 3K nodes.
+- Add some screenshots to the repository.
+- Explore how to distribute with Homebrew.
+- We need an app icon.
+- Codex generation on background.
+- Show some kind of a progress bar while we are generating a codex.
+- Parallel parsing
+- Zoom, panning, and window resize is still ugly.
